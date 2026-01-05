@@ -27,10 +27,10 @@ def format_korean_unit(val):
         return f"{int(val // 1000000000000)}조"
     return f"{int(val // 100000000):,}억"
 
-@st.cache_data(ttl=600)
+# show_spinner=False로 설정하여 기본 Running 문구를 숨깁니다.
+@st.cache_data(ttl=600, show_spinner=False)
 def get_data(mode, date_s, market):
     try:
-        # 영업일 리스트 준비 (충분한 조회를 위해 최근 30일치)
         start_search = (datetime.strptime(date_s, "%Y%m%d") - timedelta(days=30)).strftime("%Y%m%d")
         ohlcv_sample = stock.get_market_ohlcv_by_date(start_search, date_s, "005930")
         days = ohlcv_sample.index.strftime("%Y%m%d").tolist()
@@ -38,31 +38,22 @@ def get_data(mode, date_s, market):
         if "연속 거래대금" in mode:
             n = 3 if "3일" in mode else 5
             if len(days) < n: return pd.DataFrame()
-            
             target_days = days[-n:]
             valid_tickers = None
             stats_df = pd.DataFrame() 
-            
-            # n일 동안 매일 1,000억 이상인 종목 교집합 찾기
             for d in target_days:
                 df_day = stock.get_market_ohlcv_by_ticker(d, market=market)
                 cond_1000b = df_day[df_day['거래대금'] >= 100000000000].index
-                
                 if valid_tickers is None:
                     valid_tickers = set(cond_1000b)
                 else:
                     valid_tickers = valid_tickers.intersection(set(cond_1000b))
-                
-                # 누적 합계 계산
                 if stats_df.empty:
                     stats_df = df_day[['등락률', '거래대금']]
                 else:
                     stats_df['등락률'] += df_day['등락률']
                     stats_df['거래대금'] += df_day['거래대금']
-            
             if not valid_tickers: return pd.DataFrame()
-            
-            # 필터링된 종목만 평균 계산
             df_cap = stock.get_market_cap_by_ticker(date_s, market=market)
             res = []
             for t in list(valid_tickers):
@@ -79,7 +70,6 @@ def get_data(mode, date_s, market):
             base_day = days[-4]
             base_df = stock.get_market_ohlcv_by_ticker(base_day, market=market)
             targets = base_df[(base_df['거래대금'] >= 50000000000) & (base_df['등락률'] >= 15)].index
-            
             res = []
             df_cap = stock.get_market_cap_by_ticker(date_s, market=market)
             for t in targets:
@@ -112,9 +102,8 @@ def get_data(mode, date_s, market):
     except: return pd.DataFrame()
 
 # --- 앱 메인 UI ---
-st.title("📈 해민증권")
+st.title("해민증권🧑‍💼")
 
-# 날짜 초기값 설정 (NameError 방지)
 try:
     init_date_str = stock.get_nearest_business_day_in_a_week()
     default_d = datetime.strptime(init_date_str, "%Y%m%d")
@@ -136,7 +125,9 @@ t1, t2 = st.tabs(["KOSPI", "KOSDAQ"])
 
 for tab, mkt in zip([t1, t2], ["KOSPI", "KOSDAQ"]):
     with tab:
-        data = get_data(mode, date_s, mkt)
+        # st.spinner를 사용하여 커스텀 문구를 노출합니다.
+        with st.spinner("데이터 불러오는 중..."):
+            data = get_data(mode, date_s, mkt)
         
         if data.empty:
             st.info("조건에 맞는 종목이 없습니다.")
